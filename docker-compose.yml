@@ -1,0 +1,79 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: jungle
+      POSTGRES_USER: jungle
+      POSTGRES_PASSWORD: jungle
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jungle -d jungle"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  localstack:
+    image: localstack/localstack:4
+    environment:
+      SERVICES: sqs
+      DEFAULT_REGION: us-east-1
+      PERSISTENCE: "1"
+    ports:
+      - "127.0.0.1:4566:4566"
+    volumes:
+      - localstack-data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD", "bash", "-lc", "awslocal sqs list-queues"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  app:
+    build: .
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://jungle:jungle@postgres:5432/jungle
+      SQS_ENDPOINT: http://localstack:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      REQUEST_QUEUE_NAME: wager-requests
+      EVENT_QUEUE_NAME: wager-events
+      MAX_QUEUE_RECEIVES: "5"
+      REFERENCE_MAX_ATTEMPTS: "8"
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    restart: unless-stopped
+
+  test:
+    build:
+      context: .
+      target: build
+    profiles: ["test"]
+    command: ["bun", "test"]
+    environment:
+      NODE_ENV: test
+      DATABASE_URL: postgres://jungle:jungle@postgres:5432/jungle
+      SQS_ENDPOINT: http://localstack:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      INTEGRATION: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  localstack-data:
